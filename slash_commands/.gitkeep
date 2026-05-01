@@ -1,0 +1,14 @@
+# Slash Commands
+
+This folder is for custom commands and scripts to process your work notes.
+
+## Purpose
+Store automation scripts, processing tools, and custom commands here.
+
+## Examples
+- `process_notes.py` - Python script to parse work notes
+- `generate_summaries.sh` - Shell script to create all output formats
+- `sync_to_jira.js` - Node.js script to sync with project management tools
+
+## Usage
+Add your custom scripts here and document them in the main README.

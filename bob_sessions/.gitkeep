@@ -1,0 +1,20 @@
+# Bob Sessions
+
+This folder stores AI assistant session history and conversation logs.
+
+## Purpose
+Keep track of your interactions with Bob (the AI assistant) for:
+- Session continuity
+- Historical reference
+- Workflow improvements
+- Learning from past conversations
+
+## Usage
+Session files will be automatically created here when using Bob to process your work notes.
+
+## File Naming Convention
+- `session_YYYY-MM-DD_HHMM.json` - JSON format session logs
+- `conversation_YYYY-MM-DD.md` - Markdown format conversation history
+
+## Privacy Note
+These files are for your personal use. Add them to .gitignore if you don't want to share session history publicly.
