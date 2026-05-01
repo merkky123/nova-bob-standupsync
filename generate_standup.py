@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
 """
-StandupSync - Automated Standup Summary Generator
+StandupSync - Automated Standup Summary Generator with Git Integration
 
 This script reads your daily work notes and generates three formatted standup summaries:
 1. Markdown format (for documentation and wikis)
 2. Slack format (for team chat channels)
 3. Email format (for formal communication)
 
+NEW FEATURE: Automatic Git Integration
+- Automatically fetches today's git commits from the repository
+- Extracts commit messages and timestamps
+- Merges them into your work notes as "Git Activity Today" section
+- Ensures no work is missed even if you forgot to write notes
+
 Usage:
     python generate_standup.py
 
 The script will:
+- Fetch today's git commits from the repository (if available)
 - Read work notes from input/my_work_notes.txt
+- Merge git activity with your manual notes
 - Generate three formatted summaries
 - Save them to the output/ folder with today's date in the filename
 """
@@ -19,6 +27,7 @@ The script will:
 # Import required libraries
 import os  # For file path operations
 from datetime import datetime  # For getting today's date
+import subprocess  # For running git commands
 import re  # For text pattern matching (regular expressions)
 
 
@@ -45,6 +54,125 @@ def read_work_notes(file_path):
         print(f"Error: Could not find work notes file at {file_path}")
         print("Please make sure the file exists and try again.")
         raise
+
+def get_todays_git_commits(repo_path):
+    """
+    Get all git commits from today in the current repository.
+    
+    This function runs 'git log' to fetch commits made today,
+    including commit messages and timestamps.
+    
+    Args:
+        repo_path (str): Path to the git repository
+        
+    Returns:
+        list: List of dictionaries containing commit info (time, message)
+              Returns empty list if git is not available or no commits found
+    """
+    try:
+        # Get today's date at midnight for filtering commits
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        today_str = today.strftime('%Y-%m-%d')
+        
+        # Run git log command to get today's commits
+        # Format: %H = commit hash, %ai = author date, %s = subject (commit message)
+        git_command = [
+            'git', 'log',
+            f'--since={today_str} 00:00',
+            '--format=%ai|%s',  # Timestamp | Commit message
+            '--author-date-order'
+        ]
+        
+        # Execute the git command
+        result = subprocess.run(
+            git_command,
+            cwd=repo_path,  # Run in the repository directory
+            capture_output=True,  # Capture stdout and stderr
+            text=True,  # Return output as string
+            timeout=10  # Timeout after 10 seconds
+        )
+        
+        # Check if command was successful
+        if result.returncode != 0:
+            print("[INFO] Could not fetch git commits (not a git repository or git not installed)")
+            return []
+        
+        # Parse the output
+        commits = []
+        for line in result.stdout.strip().split('\n'):
+            if line:  # Skip empty lines
+                # Split on the pipe character we used in format
+                parts = line.split('|', 1)
+                if len(parts) == 2:
+                    timestamp_str, message = parts
+                    # Parse the timestamp
+                    try:
+                        timestamp = datetime.fromisoformat(timestamp_str.strip().replace(' ', 'T', 1).rsplit(' ', 1)[0])
+                        commits.append({
+                            'time': timestamp.strftime('%I:%M %p'),  # Format as "02:30 PM"
+                            'message': message.strip()
+                        })
+                    except ValueError:
+                        # If timestamp parsing fails, skip this commit
+                        continue
+        
+        return commits
+        
+    except subprocess.TimeoutExpired:
+        print("[WARNING] Git command timed out")
+        return []
+    except FileNotFoundError:
+        print("[INFO] Git is not installed or not in PATH")
+        return []
+    except Exception as e:
+        print(f"[WARNING] Error fetching git commits: {str(e)}")
+
+def merge_git_commits_with_notes(notes_content, git_commits):
+    """
+    Merge today's git commits into the work notes content.
+    
+    Adds a new section called 'Git Activity Today' with all commits
+    from today, including timestamps and commit messages.
+    
+    Args:
+        notes_content (str): Original work notes content
+        git_commits (list): List of commit dictionaries from get_todays_git_commits()
+        
+    Returns:
+        str: Enhanced work notes with git activity section added
+    """
+    if not git_commits:
+        # No commits today, return original notes
+        return notes_content
+    
+    # Build the Git Activity section
+    git_section = "\n\nGIT ACTIVITY TODAY:\n"
+    git_section += "=" * 50 + "\n"
+    git_section += "(Automatically extracted from git log)\n\n"
+    
+    for commit in git_commits:
+        git_section += f"{commit['time']} - Git commit\n"
+        git_section += f"- {commit['message']}\n\n"
+    
+    # Add the git section to the end of the notes
+    # (before BLOCKERS or NOTES sections if they exist)
+    
+    # Try to insert before BLOCKERS section
+    if 'BLOCKERS:' in notes_content:
+        parts = notes_content.split('BLOCKERS:', 1)
+        return parts[0] + git_section + 'BLOCKERS:' + parts[1]
+    
+    # Try to insert before NOTES section
+    elif 'NOTES:' in notes_content:
+        parts = notes_content.split('NOTES:', 1)
+        return parts[0] + git_section + 'NOTES:' + parts[1]
+    
+    # Otherwise, append to the end
+    else:
+        return notes_content + git_section
+
+        return []
+
 
 
 def parse_work_notes(notes_content):
@@ -396,9 +524,17 @@ def main():
     date_display = today.strftime('%B %d, %Y')  # e.g., "May 01, 2026"
     
     print(f"\nDate: {date_display}")
-    print(f"Reading work notes from: {input_file}")
     
-    # Step 1: Read the work notes file
+    # Step 1: Fetch today's git commits
+    print("\nFetching today's git commits...")
+    git_commits = get_todays_git_commits(script_dir)
+    if git_commits:
+        print(f"[OK] Found {len(git_commits)} git commit(s) from today")
+    else:
+        print("[INFO] No git commits found for today (or not a git repository)")
+    
+    # Step 2: Read the work notes file
+    print(f"\nReading work notes from: {input_file}")
     try:
         notes_content = read_work_notes(input_file)
         print(f"[OK] Successfully read work notes ({len(notes_content)} characters)")
@@ -406,7 +542,13 @@ def main():
         print("\n[ERROR] Failed to read work notes. Exiting.")
         return
     
-    # Step 2: Parse the work notes
+    # Step 3: Merge git commits into work notes
+    if git_commits:
+        print("\nMerging git activity into work notes...")
+        notes_content = merge_git_commits_with_notes(notes_content, git_commits)
+        print(f"[OK] Added {len(git_commits)} commit(s) to work notes")
+    
+    # Step 4: Parse the enhanced work notes
     print("\nParsing work notes...")
     parsed_data = parse_work_notes(notes_content)
     print(f"[OK] Found {len(parsed_data['accomplishments'])} accomplishments")
